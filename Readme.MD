@@ -1,4 +1,4 @@
-#                  Backup Door
+#                  Backdoor
 
 Các thư mục sẽ là các loại back door mình viết bằng pythong, sẽ update nhiều tính năng cho back door trong thời gian tới. Hiện tại chỉ hổ trợ shell đơn giản
 
